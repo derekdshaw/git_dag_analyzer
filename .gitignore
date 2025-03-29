@@ -1,0 +1,32 @@
+# Ignore target directory (build artifacts)
+target/
+
+# Ignore Cargo.lock (if this is a library, not a binary)
+# Uncomment the next line if this is a library
+# Cargo.lock
+
+# Ignore debug log files
+*.log
+
+# Ignore IDE/editor-specific files
+.vscode/
+.idea/
+*.swp
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Ignore temporary files
+*.tmp
+*.bak
+*.old
+
+# Ignore Rust Analyzer files
+*.rs.bk
