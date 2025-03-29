@@ -14,7 +14,7 @@ Currently the system will build a graph connecting all these objects as best as 
 
 ## Future Feature Ideas
 
-- Create a web backend with the in memory models as a backing store, and a front end UI to allow for more visual reports accros the entire repo.
+- Create a web backend with the in memory models as a backing store, and a front end UI to allow for more visual reports across the entire repo.
 - Explore a move to libgit2 as a possible perf gain. Removing the need to call expensive git api's directly. 
 - Open to anyone who would like to contribute, or has any feature suggestions, or any corrections/improvements.
 

@@ -1,5 +1,5 @@
 [package]
-name = "git_rust_tester"
+name = "git_dag_analyzer"
 version = "0.1.0"
 edition = "2021"
 
