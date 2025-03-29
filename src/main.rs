@@ -1,7 +1,7 @@
 #![warn(clippy::all, clippy::pedantic)]
 
 use anyhow::Result;
-use git_rust_tester::{
+use git_dag_analyzer::{
     git_processing::{process_initial_repo, process_all_commit_deps, process_tags},
     object_collection::ObjectContainer,
     report_commits::report_commits,
