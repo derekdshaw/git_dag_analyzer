@@ -117,10 +117,10 @@ mod tests {
         let command_path = temp_dir.as_path();
         let result = pipe_commands(
             command_path,
-            "echo",
-            &["Hello, world!"],
-            "grep",
-            &["Nonexistent"],
+            "cmd",
+            &["/C", "echo", "Hello, world!"],
+            "cmd",
+            &["/C", "findstr", "Nonexistent"],
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap().trim(), "");
