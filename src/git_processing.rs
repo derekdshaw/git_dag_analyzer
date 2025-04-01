@@ -254,8 +254,16 @@ pub fn process_commit_deps (
 
     // Walk all the collected dep strings in parallel
     commit_deps.read().unwrap().par_iter().for_each(|(commit_hash, deps)| {
-
-        let mut commit = container.commits().get(commit_hash).write().unwrap();
+        let mut commit;
+        let commit_opt = container.commits().get(commit_hash);
+        match commit_opt {
+            Some(commit_res) => {
+                commit = commit_res.write().unwrap();
+            }
+            None => {
+                println!("Unable to find commit: {}", commit_hash);
+            }
+        }
         let dep_lines: Vec<&str> = deps.split("\n").collect();
         for (_index, line) in dep_lines.iter().enumerate() {
 
@@ -277,19 +285,35 @@ pub fn process_commit_deps (
             let op_tree_index = container.trees().get_index(hash);
             match op_tree_index {
                 Some(tree_index) => {
-                    let mut tree = container.trees().get(hash).write().unwrap();
-                    tree.add_path(path);
-                    tree.add_commit(commit.hash_index());
-                    commit.add_tree_dep(tree_index);
+                    let tree_opt = container.trees().get(hash);
+                    match tree_opt {
+                        Some(tree) => {
+                            let mut tree_guard = tree.write().unwrap();
+                            tree_guard.add_path(path);
+                            tree_guard.add_commit(commit.hash_index());
+                            commit.add_tree_dep(tree_index);
+                        },
+                        None => {
+                            println!("Unable to find tree: {}", hash);
+                        }
+                    }
                 },
                 None => {
                     let op_blob_index = container.blobs().get_index(hash);
                     match op_blob_index {
                         Some(blob_index) => {
-                            let mut blob = container.blobs().get(hash).write().unwrap();
-                            blob.add_path(path);
-                            blob.add_commit(commit.hash_index());
-                            commit.add_blob_dep(blob_index);
+                            let blob_opt = container.blobs().get(hash);
+                            match blob_opt {
+                                Some(blob) => {
+                                    let mut blob_guard = blob.write().unwrap();
+                                    blob_guard.add_path(path);
+                                    blob_guard.add_commit(commit.hash_index());
+                                    commit.add_blob_dep(blob_index);
+                                },
+                                None => {
+                                    println!("Unable to find blob: {}", hash);
+                                }
+                            }
                         },
                         None => {
                            // this is a commit object and we can skip it. 
@@ -358,9 +382,17 @@ pub fn process_tags(repo_path: &Path, container: &ObjectContainer) {
 
         } else {
             // this is a tag
-            let tag = container.tags().get(hash);
-            tag.write().unwrap().add_name(label);
-            previous_tag = Some(tag);
+            let tag_opt = container.tags().get(hash);
+            match tag_opt {
+                Some(tag) => {
+                    // this is a tag object
+                    let mut tag_guard = tag.write().unwrap();
+                    tag_guard.add_name(label);
+                },
+                None => {
+                    println!("Unable to find tag: {}", hash);
+                }
+            }
         }
     });
 

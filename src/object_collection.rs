@@ -27,18 +27,17 @@ where
     }
 
     pub fn add(&mut self, hash: &str, object: T) {
-        let index = object.hash_index().clone();
+        let index = *object.hash_index();
         self.items.push(RwLock::new(object));
-        self.lookup.insert(hash.to_string(), index);
+        self.lookup.insert(hash.to_owned(), index);
     }
 
     pub fn get_index(&self, hash: &str) -> Option<&usize> {
         self.lookup.get(hash)
     }
 
-    pub fn get(&self, hash: &str) -> &RwLock<T> {
-        let index = self.lookup[hash];
-        &self.items[index]
+    pub fn get(&self, hash: &str) -> Option<&RwLock<T>> {
+        self.lookup.get(hash).map(|&index| &self.items[index])
     }
 
     pub fn get_by_index(&self, index: &usize) -> &RwLock<T> {
