@@ -24,6 +24,18 @@ impl Commit {
         }
     }
 
+    pub fn default() -> Self {
+        Commit {
+            hash_index: 0,
+            size: 0,
+            size_disk: 0,
+            blob_deps: Vec::new(),
+            tree_deps: Vec::new(),
+            tag_deps: Vec::new(),
+            lightweight_tags: Vec::new(),
+        }
+    }
+
     pub fn size_disk(&self) -> u32 {
         self.size_disk
     }

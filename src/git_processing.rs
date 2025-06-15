@@ -10,7 +10,8 @@ use std::{ path::{Path,PathBuf},
             fs::File,
             io::{ Write, BufReader, BufRead, ErrorKind },
             sync::RwLock, 
-            time::Instant };
+            time::Instant,
+            mem};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 
@@ -32,9 +33,10 @@ pub fn process_initial_repo(repo_path: &Path, container: &mut ObjectContainer) {
 // Given a list of objects their sizes and types in a single string with newlines for
 // each object. Build up the initial set of containers for each object type.
 pub fn process_objects(objects: &str, container: &mut ObjectContainer) {
-    println!("Processing objects");
-    let object_lines: Vec<&str> = objects.split("\n").collect();
+    println!("Processing objects...");
+    let object_lines= objects.lines();
 
+    //for line in object_lines {
     for line in object_lines {
         let object = line.replace('\'', "");
         let properties: Vec<&str> = object.split(" ").collect();
@@ -65,7 +67,7 @@ pub fn process_objects(objects: &str, container: &mut ObjectContainer) {
                 _ => println!("Unknown: {}", properties[0]),
             }
         }
-    }
+    };
 
     println!("Done processing.");
 }
@@ -173,7 +175,7 @@ fn load_deps(load_path: &PathBuf) -> Result<RwLock<HashMap<String, String>>> {
 
     let mut have_hash = false;
     let mut hash:String = "".to_string();
-    let mut dep_lines = "".to_string();
+    let mut dep_lines = String::new();
 
     // walk the lines from the file. Once we have a semi colon the next line is a
     // hash. After the has each line is a dep until we see another semi colon, and
@@ -184,7 +186,7 @@ fn load_deps(load_path: &PathBuf) -> Result<RwLock<HashMap<String, String>>> {
                 if line.eq(";") { // look for a semi colon if we find one the next line is the hash
                     if dep_lines.len() > 0
                     {
-                        deps.write().unwrap().insert(hash.clone(), dep_lines.clone());
+                        deps.write().unwrap().insert(hash.to_string(), mem::take(&mut dep_lines));
                         dep_lines.clear();
                     }
                     have_hash = true;
@@ -254,74 +256,62 @@ pub fn process_commit_deps (
 
     // Walk all the collected dep strings in parallel
     commit_deps.read().unwrap().par_iter().for_each(|(commit_hash, deps)| {
-        let mut commit;
-        let commit_opt = container.commits().get(commit_hash);
-        match commit_opt {
-            Some(commit_res) => {
-                commit = commit_res.write().unwrap();
-            }
-            None => {
-                println!("Unable to find commit: {}", commit_hash);
-            }
-        }
-        let dep_lines: Vec<&str> = deps.split("\n").collect();
-        for (_index, line) in dep_lines.iter().enumerate() {
+        if let Some(commit_res) = container.commits().get(commit_hash) {
+            
+            let mut commit= commit_res.write().unwrap();
+        
+            let dep_lines = deps.lines();
+            for line in dep_lines {
 
-            if line.len() < 40 {                
-                // There may have been a newline at the end of the dep_lines. This 
-                // causes there to be an empty item in the list ( line ). Just
-                // ignore it.
-                continue;
-            }
+                if line.len() < 40 {                
+                    // There may have been a newline at the end of the dep_lines. This 
+                    // causes there to be an empty item in the list ( line ). Just
+                    // ignore it.
+                    continue;
+                }
 
-            let hash = &line[..40].to_string();
-            let mut path = ""; // we can have a tree with no path ( root tree )
-            if line.len() > 41 {
-                path = &line[41..];
-            }
+                let hash = &line[..40].to_string();
+                let mut path = ""; // we can have a tree with no path ( root tree )
+                if line.len() > 41 {
+                    path = &line[41..];
+                }
 
-            // try to get this as a tree, failing that its a blob. If its a commit we can
-            // skip it as the data is in the deps.
-            let op_tree_index = container.trees().get_index(hash);
-            match op_tree_index {
-                Some(tree_index) => {
-                    let tree_opt = container.trees().get(hash);
-                    match tree_opt {
-                        Some(tree) => {
+                // try to get this as a tree, failing that its a blob. If its a commit we can
+                // skip it as the data is in the deps.
+                let op_tree_index = container.trees().get_index(hash);
+                match op_tree_index {
+                    Some(tree_index) => {
+                        if let Some(tree) = container.trees().get(hash) {
                             let mut tree_guard = tree.write().unwrap();
                             tree_guard.add_path(path);
                             tree_guard.add_commit(commit.hash_index());
                             commit.add_tree_dep(tree_index);
-                        },
-                        None => {
+                        } else {
                             println!("Unable to find tree: {}", hash);
                         }
-                    }
-                },
-                None => {
-                    let op_blob_index = container.blobs().get_index(hash);
-                    match op_blob_index {
-                        Some(blob_index) => {
-                            let blob_opt = container.blobs().get(hash);
-                            match blob_opt {
-                                Some(blob) => {
+                    },
+                    None => {
+                        let op_blob_index = container.blobs().get_index(hash);
+                        match op_blob_index {
+                            Some(blob_index) => {
+                                if let Some(blob) = container.blobs().get(hash) {
+                                
                                     let mut blob_guard = blob.write().unwrap();
                                     blob_guard.add_path(path);
                                     blob_guard.add_commit(commit.hash_index());
                                     commit.add_blob_dep(blob_index);
-                                },
-                                None => {
-                                    println!("Unable to find blob: {}", hash);
+                                } else {
+                                        println!("Unable to find blob: {}", hash);
                                 }
+                            },
+                            None => {
+                            // this is a commit object and we can skip it. 
                             }
-                        },
-                        None => {
-                           // this is a commit object and we can skip it. 
                         }
                     }
                 }
-            }
-        };
+            };
+        }
     });
 
     println!("processed all commit deps in: {:?}", start.elapsed())
@@ -339,10 +329,10 @@ pub fn process_tags(repo_path: &Path, container: &ObjectContainer) {
         }
     };
 
-    let lines: Vec<&str> = tag_deps.split("\n").collect();
-    println!("Processing {} items.", lines.len());
+    let lines = tag_deps.lines();
+    println!("Processing tag items...");
     let mut previous_tag:Option<&RwLock<Tag>> = None;
-    lines.iter().for_each(|line| {
+    for line in lines {
         let deps: Vec<&str> = line.split(" ").collect();
 
         let hash = deps[0];
@@ -383,18 +373,15 @@ pub fn process_tags(repo_path: &Path, container: &ObjectContainer) {
         } else {
             // this is a tag
             let tag_opt = container.tags().get(hash);
-            match tag_opt {
-                Some(tag) => {
-                    // this is a tag object
-                    let mut tag_guard = tag.write().unwrap();
-                    tag_guard.add_name(label);
-                },
-                None => {
-                    println!("Unable to find tag: {}", hash);
-                }
+            if let Some(tag) = tag_opt {
+                // this is a tag object
+                let mut tag_guard = tag.write().unwrap();
+                tag_guard.add_name(label);
+            } else {
+                println!("Unable to find tag: {}", hash);
             }
         }
-    });
+    }
 
     println!("Done processing tags in: {:?}", start.elapsed());
 }
