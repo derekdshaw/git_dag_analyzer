@@ -19,7 +19,7 @@ impl Tag {
             commit_index: None,
         }
     }
-    
+
     pub fn size_disk(&self) -> u32 {
         self.size_disk
     }
@@ -45,7 +45,7 @@ impl Properties for Tag {
         &self.hash_index
     }
 
-    fn set_index(&mut self, index:usize) {
+    fn set_index(&mut self, index: usize) {
         self.hash_index = index;
     }
 }

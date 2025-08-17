@@ -1,22 +1,21 @@
 #![warn(clippy::all, clippy::pedantic)]
 
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use git_dag_analyzer::{
-    git_processing::{process_initial_repo, process_all_commit_deps, process_tags},
+    git_processing::{process_all_commit_deps, process_initial_repo, process_tags},
     object_collection::ObjectContainer,
-    report_commits::report_commits,
-    report_trees::report_trees,
     report_all::report_all,
     report_blobs::report_blobs,
+    report_commits::report_commits,
+    report_trees::report_trees,
 };
 use std::path::PathBuf;
-use clap::{Parser, Subcommand};
 use tokio::main;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-
     /// REQUIRED: The git repo to work against
     #[arg(short, long, value_name = "REPO_PATH", required(true))]
     repo: Option<PathBuf>,
@@ -37,7 +36,7 @@ enum Commands {
 
         /// If set and the file is not present, it will be created for further use. If
         /// present then it will be loaded for processeing. Saving the time it normally
-        /// takes to process commit deps. 
+        /// takes to process commit deps.
         #[arg(short, long, value_name = "SAVE_LOCATION")]
         save_deps: Option<PathBuf>,
 
@@ -57,14 +56,14 @@ enum Commands {
 
         /// If set and the file is not present, it will be created for further use. If
         /// present then it will be loaded for processeing. Saving the time it normally
-        /// takes to process commit deps. 
+        /// takes to process commit deps.
         #[arg(short, long, value_name = "SAVE_LOCATION")]
         save_deps: Option<PathBuf>,
 
         // This is tags, but it conflicts with the short command -t of trees.
         #[arg(short, long)]
         labels: bool,
-    }
+    },
 }
 
 #[main]
@@ -72,12 +71,17 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // since this is required by the cli, we can safely unwrap here.
-    let  repo_path = cli.repo.as_deref().unwrap();
+    let repo_path = cli.repo.as_deref().unwrap();
     let mut container = ObjectContainer::new();
-    
-    match &cli.command {
-        Some(Commands::Reports { all, commits, save_deps, trees, blobs}) => {
 
+    match &cli.command {
+        Some(Commands::Reports {
+            all,
+            commits,
+            save_deps,
+            trees,
+            blobs,
+        }) => {
             // first we have to process everything
             process_initial_repo(repo_path, &mut container);
 
@@ -95,8 +99,13 @@ async fn main() -> Result<()> {
             } else if *blobs {
                 report_blobs(&container);
             }
-        },
-        Some(Commands::ProcessOnly { all, commits, save_deps, labels }) => {
+        }
+        Some(Commands::ProcessOnly {
+            all,
+            commits,
+            save_deps,
+            labels,
+        }) => {
             process_initial_repo(repo_path, &mut container);
             if *all {
                 process_all_commit_deps(repo_path, &container, save_deps).await?;

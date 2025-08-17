@@ -44,7 +44,7 @@ impl Properties for Blob {
         &self.hash_index
     }
 
-    fn set_index(&mut self, index:usize) {
+    fn set_index(&mut self, index: usize) {
         self.hash_index = index;
     }
 }

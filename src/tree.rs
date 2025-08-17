@@ -48,7 +48,7 @@ impl Properties for Tree {
     fn hash_index(&self) -> &usize {
         &self.hash_index
     }
-    fn set_index(&mut self, index:usize) {
+    fn set_index(&mut self, index: usize) {
         self.hash_index = index;
     }
 }

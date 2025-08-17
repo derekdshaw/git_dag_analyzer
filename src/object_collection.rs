@@ -7,7 +7,7 @@ use std::sync::RwLock;
 
 pub trait Properties {
     fn hash_index(&self) -> &usize;
-    fn set_index(&mut self, index:usize);
+    fn set_index(&mut self, index: usize);
 }
 
 pub struct BasicObjectContainer<T> {
@@ -58,14 +58,18 @@ where
 
     // Note that this is slow and should not be done in a loop.
     pub fn lookup_hash_for_index(&self, index: &usize) -> Option<&String> {
-        let hash = self.lookup.iter().find_map(|(key, &val)| if val == *index { Some(key) } else { None });
+        let hash = self
+            .lookup
+            .iter()
+            .find_map(|(key, &val)| if val == *index { Some(key) } else { None });
         hash
     }
-
 }
 
 impl<T> Default for BasicObjectContainer<T>
-where T: Properties {
+where
+    T: Properties,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -120,6 +124,13 @@ impl ObjectContainer {
         &self.tags
     }
 }
+
+impl Default for ObjectContainer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

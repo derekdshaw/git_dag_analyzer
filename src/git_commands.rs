@@ -10,7 +10,7 @@ pub fn get_commit_tree_hash(repo_path: &Path, commit_hash: &str) -> Result<Strin
 
 pub fn get_commit_deps(repo_path: &Path, commit_hash: &str) -> Result<String, String> {
     let command = "git";
-    let commit_part = format!("{}~1..{}", commit_hash, commit_hash);
+    let commit_part = format!("{commit_hash}~1..{commit_hash}");
     let args = ["rev-list", "--objects", &commit_part];
 
     run_command(repo_path, command, &args)

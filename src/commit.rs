@@ -1,5 +1,6 @@
 use crate::object_collection::Properties;
 
+#[derive(Debug, Default)]
 pub struct Commit {
     hash_index: usize,
     size: u32,
@@ -17,18 +18,6 @@ impl Commit {
             hash_index,
             size,
             size_disk,
-            blob_deps: Vec::new(),
-            tree_deps: Vec::new(),
-            tag_deps: Vec::new(),
-            lightweight_tags: Vec::new(),
-        }
-    }
-
-    pub fn default() -> Self {
-        Commit {
-            hash_index: 0,
-            size: 0,
-            size_disk: 0,
             blob_deps: Vec::new(),
             tree_deps: Vec::new(),
             tag_deps: Vec::new(),
@@ -85,7 +74,7 @@ impl Properties for Commit {
         &self.hash_index
     }
 
-    fn set_index(&mut self, index:usize) {
+    fn set_index(&mut self, index: usize) {
         self.hash_index = index;
     }
 }

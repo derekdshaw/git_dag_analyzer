@@ -7,7 +7,7 @@ pub fn run_command(command_path: &Path, command: &str, args: &[&str]) -> Result<
         .current_dir(command_path)
         .args(args)
         .output()
-        .map_err(|e| format!("Failed to execute command: {}", e))?;
+        .map_err(|e| format!("Failed to execute command: {e}"))?;
 
     if output.status.success() {
         let git_output = String::from_utf8_lossy(&output.stdout);
