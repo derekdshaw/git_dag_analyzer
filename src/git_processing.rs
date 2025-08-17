@@ -5,15 +5,17 @@ use crate::object_collection::{ObjectContainer, Properties};
 use crate::tag::Tag;
 use crate::tree::Tree;
 use anyhow::Result;
+use tokio::sync::{Semaphore, mpsc, Mutex};
+use std::sync::{Arc, RwLock, atomic::{AtomicU32, AtomicU64, Ordering}};
 use std::{ path::{Path,PathBuf},
             collections::HashMap,
             fs::File,
             io::{ Write, BufReader, BufRead, ErrorKind },
-            sync::RwLock, 
-            time::Instant,
+            time::{Instant, Duration},
             mem};
 use rayon::prelude::*;
-use rayon::ThreadPoolBuilder;
+//use rayon::ThreadPoolBuilder;
+use tokio::task::JoinSet;
 
 pub fn process_initial_repo(repo_path: &Path, container: &mut ObjectContainer) {
 
@@ -75,7 +77,7 @@ pub fn process_objects(objects: &str, container: &mut ObjectContainer) {
 /// This is a wrapper function that will walk all the commits and build a list of just their hashes. This
 /// is done to allow for a faster set of processing and alleviate any issues with borrowing during
 /// processing. 
-pub fn process_all_commit_deps(
+pub async fn process_all_commit_deps(
     repo_path: &Path,
     container: &ObjectContainer,
     save_load_deps: &Option<PathBuf>
@@ -89,7 +91,7 @@ pub fn process_all_commit_deps(
         });
     }
     
-    let commit_deps: RwLock<HashMap<String, String>>;
+    let commit_deps: HashMap<String, String>;
 
     // If we have been asked to save/load the processed deps to save on
     // building those out which can be time consuming. 
@@ -103,12 +105,12 @@ pub fn process_all_commit_deps(
             commit_deps = load_deps(&save_load_path)?;
         } else {
             // Otherwise we need to build the deps first then save them out to file. 
-            commit_deps = build_deps(repo_path, &commits);
+            commit_deps = build_deps_tokio(repo_path, &commits).await;
             save_deps(&commit_deps, &save_load_path)?;
         }
     } else {
         // No load/save action requested, just build the deps. 
-        commit_deps = build_deps(repo_path, &commits);
+        commit_deps = build_deps_tokio(repo_path, &commits).await;
     }
 
     process_commit_deps(&commit_deps, container);
@@ -119,57 +121,144 @@ pub fn process_all_commit_deps(
 /// Build a HashMap of commit hash to dependencies. Where dependencies is a string representing
 /// all objects tied to that single commit. 
 /// Note on processing times. This can take quite a while on a large repo anywhere from 10 min to an hour.
-/// No current indicator of progress has been implemented. So folks just have to wait for it to complete.
-/// return the rwlocked hashmap to avoid cloning on the way out.
-fn build_deps(repo_path: &Path, commits: &Vec<String>) -> RwLock<HashMap<String, String>> {
-    println!("Getting commit deps (This could take a while)...");
+/// Debug and progress information is printed to the console to give an idea of progress.
+async fn build_deps_tokio(repo_path: &Path, commits: &Vec<String>) -> HashMap<String, String> {
     let start = Instant::now();
-    let commit_deps_lock:RwLock<HashMap<String, String>> = RwLock::new(HashMap::new());
+    println!("Getting commit deps. Runs a git command for every commit (This could take a while)...");
 
-    // parallel this loop with a low thread count, so as not to overload git with too many requests
-    // 8 was chosen as it seems to be the sweet spot for performance. More threads create lock contention
-    // either within git, or this code.
-    let thread_count = if rayon::current_num_threads() > 8 { 8 } else { rayon::current_num_threads() };
-    let thread_pool = ThreadPoolBuilder::new().num_threads(thread_count).build().unwrap();
-    thread_pool.install(|| {
-        commits.par_iter().for_each(|commit_hash| {
+    // Just use have the cpu count to keep contention down. Could be a param on the CLI or read from a .env
+    let num_cpus = num_cpus::get() / 2; 
+    let semaphore = Arc::new(Semaphore::new(num_cpus)); // limit the number of concurrent tasks
 
-            let deps = match get_commit_deps(repo_path, commit_hash) {
-                Ok(value) => value,
-                Err(e) => {
-                    println!("Unable to get commit deps. Error {}", e);
-                    "".to_string()
+    let mut set = JoinSet::new();
+    
+    // Create progress counter and timing stats
+    let progress = Arc::new(AtomicU32::new(0));
+    let total_commits = commits.len() as u32;
+    let last_reported = Arc::new(AtomicU32::new(0));
+    let total_time = Arc::new(AtomicU64::new(0));
+    let completed_count = Arc::new(AtomicU64::new(0));
+    
+    // Add these for tracking time per percentage
+    let last_percent_time = Arc::new(Mutex::new(Instant::now()));
+    let last_percent = Arc::new(AtomicU32::new(0));
+    
+    // Create a channel for progress updates
+    let (tx, mut rx) = mpsc::channel(32);
+    
+    // Spawn a task to handle progress reporting
+    let progress_task = tokio::spawn({
+        let last_reported = last_reported.clone();
+        let total_time = total_time.clone();
+        let completed_count = completed_count.clone();
+        let last_percent_time = last_percent_time.clone();
+        let last_percent = last_percent.clone();
+        
+        async move {
+            while let Some(completed) = rx.recv().await {
+                let progress_percent = (completed * 100) / total_commits;
+                let last_reported_percent = last_reported.load(Ordering::Relaxed);
+                
+                if progress_percent > last_reported_percent {
+                    let avg_time_ns = total_time.load(Ordering::Relaxed) / completed_count.load(Ordering::Relaxed).max(1);
+                    let avg_time = Duration::from_nanos(avg_time_ns);
+                    
+                    // Calculate time since last percentage
+                    let current_percent = progress_percent;
+                    let last_pct = last_percent.load(Ordering::Relaxed);
+                    let percent_time = if current_percent > last_pct {
+                        let now = Instant::now();
+                        let last_time = last_percent_time.lock().await;
+                        let elapsed = now.duration_since(*last_time);
+                        drop(last_time); // Explicitly drop the guard before re-locking
+                        *last_percent_time.lock().await = now;
+                        last_percent.store(current_percent, Ordering::Relaxed);
+                        elapsed
+                    } else {
+                        Duration::from_secs(0)
+                    };
+                    
+                    last_reported.store(progress_percent, Ordering::Relaxed);
+                    println!(
+                        "Progress: {}% ({} of {}), Avg: {:.2?}/task, in {:.2?}", 
+                        progress_percent, 
+                        completed, 
+                        total_commits,
+                        avg_time,
+                        percent_time
+                    );
                 }
-            };
-
-            let mut commit_deps = commit_deps_lock.write().unwrap();
-            
-            // remove the extra commit hash
-            let op_index = deps.find("\n");
-            match op_index {
-                Some(index) => {
-                    let updated_deps = &deps[index+1..];
-                    commit_deps.insert(commit_hash.to_string(), updated_deps.to_string());
-                },
-                None => {}
             }
-            
-        });
+        }
     });
 
-    println!("\rDone getting deps in {:?}", start.elapsed());
+    // Create a vector of tasks that each return their own HashMap
+    for commit_hash in commits.iter() {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let progress = progress.clone();
+        let tx = tx.clone();
+        let total_time = total_time.clone();
+        let completed_count = completed_count.clone();
 
-    commit_deps_lock
+        let commit_hash = commit_hash.to_string();
+        let repo_path = repo_path.to_path_buf();
+        
+        set.spawn_blocking(move || {
+            let start = Instant::now();
+            
+            let deps = match get_commit_deps(&repo_path, &commit_hash) {
+                Ok(value) => value,
+                Err(_) => "".to_string()
+            };
+
+            let mut commit_deps = HashMap::new();
+            
+            if let Some(index) = deps.find('\n') {
+                let updated_deps = &deps[index + 1..];
+                commit_deps.insert(commit_hash, updated_deps.to_string());
+            }
+            
+            // Update progress and timing
+            let task_time = start.elapsed();
+            let completed = progress.fetch_add(1, Ordering::Relaxed) + 1;
+            total_time.fetch_add(task_time.as_nanos() as u64, Ordering::Relaxed);
+            completed_count.fetch_add(1, Ordering::Relaxed);
+            
+            let _ = tx.blocking_send(completed);
+            drop(permit);
+            commit_deps
+        });   
+    }
+    // Drop the original sender so the receiver can finish
+    drop(tx);
+        
+    // Wait for the progress task to finish
+    let _ = progress_task.await;
+    
+
+    // Collect results
+    let mut final_deps = HashMap::new();
+
+    // For showing a progress indicator
+    println!("Merging results of {} tasks...", set.len());
+    while let Some(result) = set.join_next().await {
+        if let Ok(hashmap) = result {
+            final_deps.extend(hashmap);
+        }
+    }
+
+    println!("\rDone getting deps in {:?}", start.elapsed());
+    final_deps
 }
 
 /// If specified we will load the data to a file for later processing. The point of this is to
 /// save on processing time if are running the commands more than once. Mainly for debugging
 /// purposes.
-fn load_deps(load_path: &PathBuf) -> Result<RwLock<HashMap<String, String>>> {
+fn load_deps(load_path: &PathBuf) -> Result<HashMap<String, String>> {
 
     println!("Loading commit deps from file: {:?}", load_path);
     let start = Instant::now();
-    let deps:RwLock<HashMap<String, String>> = RwLock::new(HashMap::new());
+    let mut deps:HashMap<String, String> = HashMap::new();
     let file = File::open(load_path)?;
     let reader = BufReader::new(file);
 
@@ -186,7 +275,7 @@ fn load_deps(load_path: &PathBuf) -> Result<RwLock<HashMap<String, String>>> {
                 if line.eq(";") { // look for a semi colon if we find one the next line is the hash
                     if dep_lines.len() > 0
                     {
-                        deps.write().unwrap().insert(hash.to_string(), mem::take(&mut dep_lines));
+                        deps.insert(hash.to_string(), mem::take(&mut dep_lines));
                         dep_lines.clear();
                     }
                     have_hash = true;
@@ -219,14 +308,13 @@ fn load_deps(load_path: &PathBuf) -> Result<RwLock<HashMap<String, String>>> {
 /// If specified we will save the data to a file for later consumption. The point of this is to
 /// save on processing time if are running the commands more than once. Mainly for debugging
 /// purposes.
-fn save_deps(commit_deps: &RwLock<HashMap<String, String>>, save_path: &PathBuf) -> Result<()> {
+fn save_deps(commit_deps: &HashMap<String, String>, save_path: &PathBuf) -> Result<()> {
 
     // open the file for writing.
     let mut file = File::create(save_path)?;
     // write a semi colon as a commit delimiter.
     file.write(b";\n")?;
-    let commits = commit_deps.read().unwrap();
-    commits.iter().try_for_each(|(commit_hash, deps)| -> Result<()> {
+    commit_deps.iter().try_for_each(|(commit_hash, deps)| -> Result<()> {
 
         // write the commit hash
         file.write(format!("{}\n", commit_hash).as_bytes())?;
@@ -248,14 +336,14 @@ fn save_deps(commit_deps: &RwLock<HashMap<String, String>>, save_path: &PathBuf)
 /// Given a set of existing commits and their depended set. Walk them and build the 
 /// connections between objects.
 pub fn process_commit_deps (
-    commit_deps: &RwLock<HashMap<String, String>>,
+    commit_deps: &HashMap<String, String>,
     container: &ObjectContainer,
 ) {
     println!("Processing commit deps...");
     let start = Instant::now();
 
     // Walk all the collected dep strings in parallel
-    commit_deps.read().unwrap().par_iter().for_each(|(commit_hash, deps)| {
+    commit_deps.par_iter().for_each(|(commit_hash, deps)| {
         if let Some(commit_res) = container.commits().get(commit_hash) {
             
             let mut commit= commit_res.write().unwrap();

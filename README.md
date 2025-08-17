@@ -6,6 +6,61 @@ Currently the system will build a graph connecting all these objects as best as 
 
 ## Current CLI Commands
 
+The Git DAG Analyzer provides the following command line interface:
+
+### Basic Usage
+```
+git-dag-analyzer --repo <REPO_PATH> <COMMAND> [OPTIONS]
+```
+
+### Commands
+
+#### `reports`
+Generate various reports about the repository.
+
+**Options:**
+- `-a, --all`: Generate all available reports (commits, trees, and blobs)
+- `-c, --commits`: Generate commit report
+- `-t, --trees`: Generate tree report
+- `-b, --blobs`: Generate blob report
+- `-s, --save-deps <SAVE_LOCATION>`: Save processed commit dependencies to a file for future use
+
+**Examples:**
+```
+# Generate all reports
+git-dag-analyzer --repo /path/to/repo reports --all
+
+# Generate only commit report
+git-dag-analyzer --repo /path/to/repo reports --commits
+
+# Save processed data for future use
+git-dag-analyzer --repo /path/to/repo reports --all --save-deps deps.json
+```
+
+#### `process-only`
+Process repository data without generating reports. Useful for preparing data for later analysis.
+
+**Options:**
+- `-a, --all`: Process all data (commits and tags)
+- `-c, --commits`: Process commit data only
+- `-l, --labels`: Process tag data only
+- `-s, --save-deps <SAVE_LOCATION>`: Save processed commit dependencies to a file
+
+**Examples:**
+```
+# Process all data and save for later
+git-dag-analyzer --repo /path/to/repo process-only --all --save-deps deps.json
+
+# Process only commit data
+git-dag-analyzer --repo /path/to/repo process-only --commits
+```
+
+### Required Arguments
+- `-r, --repo <REPO_PATH>`: Path to the git repository to analyze
+
+### Version Information
+Use `--version` to display version information.
+
 ## Design Decisions
 
 ## Performance
@@ -69,4 +124,3 @@ Blob report created in: 10.1691ms
 - Create a web backend with the in memory models as a backing store, and a front end UI to allow for more visual reports across the entire repo.
 - Explore a move to libgit2 as a possible perf gain. Removing the need to call expensive git api's directly. 
 - Open to anyone who would like to contribute, or has any feature suggestions, or any corrections/improvements.
-

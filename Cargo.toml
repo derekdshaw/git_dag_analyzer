@@ -5,9 +5,12 @@ edition = "2021"
 
 [dependencies]
 rayon = "1.10.0"
+tokio = { version = "1.45.1", features = ["full"] }
 clap = { version = "4.5.19", features = ["derive"] }
-git2 = "0.19.0"
+git2 = "0.20.2"
 anyhow = "1.0.89"
+num_cpus = "1.17.0"
 
 [profile.release]
-debug = true
+debug = 2
+strip = false

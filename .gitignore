@@ -30,3 +30,7 @@ Thumbs.db
 
 # Ignore Rust Analyzer files
 *.rs.bk
+
+# profiling files
+profile.json.gz
+profile.json/

@@ -9,9 +9,9 @@ use git_dag_analyzer::{
     report_all::report_all,
     report_blobs::report_blobs,
 };
-
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use tokio::main;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -67,7 +67,8 @@ enum Commands {
     }
 }
 
-fn main() -> Result<()> {
+#[main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // since this is required by the cli, we can safely unwrap here.
@@ -81,7 +82,7 @@ fn main() -> Result<()> {
             process_initial_repo(repo_path, &mut container);
 
             // required for all three reporting types.
-            process_all_commit_deps(repo_path, &container, save_deps)?;
+            process_all_commit_deps(repo_path, &container, save_deps).await?;
 
             // Do reports
             if *all {
@@ -98,10 +99,10 @@ fn main() -> Result<()> {
         Some(Commands::ProcessOnly { all, commits, save_deps, labels }) => {
             process_initial_repo(repo_path, &mut container);
             if *all {
-                process_all_commit_deps(repo_path, &container, save_deps)?;
+                process_all_commit_deps(repo_path, &container, save_deps).await?;
                 process_tags(repo_path, &container);
             } else if *commits {
-                process_all_commit_deps(repo_path, &container, save_deps)?;
+                process_all_commit_deps(repo_path, &container, save_deps).await?;
             } else if *labels {
                 process_tags(repo_path, &container);
             }
